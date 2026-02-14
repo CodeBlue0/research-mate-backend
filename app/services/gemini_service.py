@@ -65,8 +65,17 @@ def _call_openai_chat(prompt: str, expect_json: bool = False) -> Optional[str]:
     if not _has_openai_config():
         return None
 
+    effective_base = settings.OPENAI_API_BASE.rstrip("/")
+    model_name = settings.OPENAI_MODEL.strip()
+
+    # Auto-correct common provider mismatch.
+    if model_name.startswith("deepseek") and "openai.com" in effective_base:
+        effective_base = "https://api.deepseek.com/v1"
+    if model_name.startswith("gpt-") and "deepseek.com" in effective_base:
+        effective_base = "https://api.openai.com/v1"
+
     payload = {
-        "model": settings.OPENAI_MODEL,
+        "model": model_name,
         "messages": [
             {"role": "system", "content": "You are a precise academic assistant for Korean high school research reports."},
             {"role": "user", "content": prompt},
@@ -79,7 +88,7 @@ def _call_openai_chat(prompt: str, expect_json: bool = False) -> Optional[str]:
 
     data = json.dumps(payload).encode("utf-8")
     req = request.Request(
-        url=f"{settings.OPENAI_API_BASE.rstrip('/')}/chat/completions",
+        url=f"{effective_base}/chat/completions",
         data=data,
         method="POST",
         headers={

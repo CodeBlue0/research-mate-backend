@@ -16,10 +16,12 @@ class Settings(BaseSettings):
     ALLOWED_HOSTS: str = "localhost,127.0.0.1"
     
     # Database
+    DATABASE_URL: Optional[str] = None
     DB_USER: Optional[str] = None
     DB_PASS: Optional[str] = None
     DB_NAME: Optional[str] = None
     INSTANCE_CONNECTION_NAME: Optional[str] = None
+    USE_CLOUD_SQL_IN_DEV: bool = False
     
     # Gemini (Vertex AI)
     GOOGLE_CLOUD_PROJECT: Optional[str] = None
@@ -31,6 +33,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_API_BASE: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o-mini"
+    GOOGLE_OAUTH_CLIENT_ID: Optional[str] = None
 
     # Workflow controls
     USE_LANGGRAPH: bool = True

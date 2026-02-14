@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, TypedDict
+from typing import Any, Awaitable, Callable, Dict, Optional, TypedDict
 
 from app.core.config import settings
 from app.services import gemini_service
@@ -39,8 +39,22 @@ RUBRIC = """
 5) 결론 품질: 결과 요약, 한계, 후속 탐구 제안이 있는가
 """.strip()
 
+ProgressCallback = Callable[[int, str, str], Awaitable[None]]
 
-async def _step_retrieve(state: ReportState) -> ReportState:
+
+async def _emit_progress(
+    callback: Optional[ProgressCallback],
+    percent: int,
+    phase: str,
+    message: str,
+) -> None:
+    if callback is None:
+        return
+    await callback(percent, phase, message)
+
+
+async def _step_retrieve(state: ReportState, callback: Optional[ProgressCallback] = None) -> ReportState:
+    await _emit_progress(callback, 10, "retrieve", "교과서 RAG 컨텍스트를 수집하고 있습니다.")
     chunks = retrieve_textbook_context(
         subject=state["subject"],
         unit_large=state["unit_large"],
@@ -50,10 +64,12 @@ async def _step_retrieve(state: ReportState) -> ReportState:
         top_k=4,
     )
     state["rag_context"] = format_context(chunks)
+    await _emit_progress(callback, 24, "retrieve", "교과서 근거 문맥 추출을 완료했습니다.")
     return state
 
 
-async def _step_plan(state: ReportState) -> ReportState:
+async def _step_plan(state: ReportState, callback: Optional[ProgressCallback] = None) -> ReportState:
+    await _emit_progress(callback, 36, "plan", "탐구 질문과 분석 절차를 설계하고 있습니다.")
     fallback = (
         "연구 질문 3개를 설정한다.\n"
         "1) 교과 개념이 주제에 어떻게 적용되는가\n"
@@ -74,10 +90,12 @@ async def _step_plan(state: ReportState) -> ReportState:
 - 실제 보고서 작성 시 사용할 핵심 근거와 반례 가능성 표시
 """
     state["plan"] = await gemini_service.generate_text(prompt, fallback)
+    await _emit_progress(callback, 48, "plan", "탐구 계획 수립을 완료했습니다.")
     return state
 
 
-async def _step_generate(state: ReportState) -> ReportState:
+async def _step_generate(state: ReportState, callback: Optional[ProgressCallback] = None) -> ReportState:
+    await _emit_progress(callback, 62, "generate", "보고서 초안을 생성하고 있습니다.")
     instructions = state.get("custom_instructions", "")
     strict_instructions = (
         f"{instructions}\n\n"
@@ -92,16 +110,20 @@ async def _step_generate(state: ReportState) -> ReportState:
         topic_description=state.get("topic_description", ""),
         custom_instructions=strict_instructions,
     )
+    await _emit_progress(callback, 74, "generate", "초안 생성을 완료했습니다.")
     return state
 
 
-async def _step_critique(state: ReportState) -> ReportState:
+async def _step_critique(state: ReportState, callback: Optional[ProgressCallback] = None) -> ReportState:
+    await _emit_progress(callback, 80, "critique", "품질 점검 및 채점 중입니다.")
     critique = await gemini_service.critique_report(state.get("report", {}), RUBRIC)
     state["critique"] = critique
+    await _emit_progress(callback, 86, "critique", "품질 점검을 완료했습니다.")
     return state
 
 
-async def _step_rewrite(state: ReportState) -> ReportState:
+async def _step_rewrite(state: ReportState, callback: Optional[ProgressCallback] = None) -> ReportState:
+    await _emit_progress(callback, 90, "rewrite", "피드백 기반 재작성 라운드를 진행합니다.")
     feedback = (state.get("critique") or {}).get("feedback", "")
     rewritten = await gemini_service.rewrite_report_with_feedback(
         report=state.get("report", {}),
@@ -110,10 +132,12 @@ async def _step_rewrite(state: ReportState) -> ReportState:
     )
     state["report"] = rewritten
     state["revision_count"] = state.get("revision_count", 0) + 1
+    await _emit_progress(callback, 94, "rewrite", "재작성 라운드를 완료했습니다.")
     return state
 
 
-async def _step_finalize(state: ReportState) -> ReportState:
+async def _step_finalize(state: ReportState, callback: Optional[ProgressCallback] = None) -> ReportState:
+    await _emit_progress(callback, 97, "finalize", "최종 검증 및 저장 형식을 정리하고 있습니다.")
     report = state.get("report") or {}
     required_keys = [
         "title",
@@ -146,6 +170,7 @@ async def _step_finalize(state: ReportState) -> ReportState:
     }
 
     state["report"] = report
+    await _emit_progress(callback, 100, "finalize", "보고서 생성이 완료되었습니다.")
     return state
 
 
@@ -169,6 +194,7 @@ async def run_report_workflow(
     topic_title: str,
     topic_description: str,
     custom_instructions: str,
+    on_progress: Optional[ProgressCallback] = None,
 ) -> Dict[str, Any]:
     init_state: ReportState = {
         "subject": subject,
@@ -187,12 +213,30 @@ async def run_report_workflow(
 
     if settings.USE_LANGGRAPH and LANGGRAPH_AVAILABLE and StateGraph is not None:
         workflow = StateGraph(ReportState)
-        workflow.add_node("retrieve", _step_retrieve)
-        workflow.add_node("plan", _step_plan)
-        workflow.add_node("generate", _step_generate)
-        workflow.add_node("critique", _step_critique)
-        workflow.add_node("rewrite", _step_rewrite)
-        workflow.add_node("finalize", _step_finalize)
+        async def retrieve_node(state: ReportState) -> ReportState:
+            return await _step_retrieve(state, on_progress)
+
+        async def plan_node(state: ReportState) -> ReportState:
+            return await _step_plan(state, on_progress)
+
+        async def generate_node(state: ReportState) -> ReportState:
+            return await _step_generate(state, on_progress)
+
+        async def critique_node(state: ReportState) -> ReportState:
+            return await _step_critique(state, on_progress)
+
+        async def rewrite_node(state: ReportState) -> ReportState:
+            return await _step_rewrite(state, on_progress)
+
+        async def finalize_node(state: ReportState) -> ReportState:
+            return await _step_finalize(state, on_progress)
+
+        workflow.add_node("retrieve", retrieve_node)
+        workflow.add_node("plan", plan_node)
+        workflow.add_node("generate", generate_node)
+        workflow.add_node("critique", critique_node)
+        workflow.add_node("rewrite", rewrite_node)
+        workflow.add_node("finalize", finalize_node)
 
         workflow.set_entry_point("retrieve")
         workflow.add_edge("retrieve", "plan")
@@ -213,12 +257,12 @@ async def run_report_workflow(
         result = await app.ainvoke(init_state)
         return result.get("report", {})
 
-    state = await _step_retrieve(init_state)
-    state = await _step_plan(state)
-    state = await _step_generate(state)
-    state = await _step_critique(state)
+    state = await _step_retrieve(init_state, on_progress)
+    state = await _step_plan(state, on_progress)
+    state = await _step_generate(state, on_progress)
+    state = await _step_critique(state, on_progress)
     while _need_rewrite(state) == "rewrite":
-        state = await _step_rewrite(state)
-        state = await _step_critique(state)
-    state = await _step_finalize(state)
+        state = await _step_rewrite(state, on_progress)
+        state = await _step_critique(state, on_progress)
+    state = await _step_finalize(state, on_progress)
     return state.get("report", {})

@@ -4,7 +4,13 @@ from jose import jwt
 from passlib.context import CryptContext
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use pbkdf2_sha256 as primary hash to avoid bcrypt backend compatibility
+# issues (notably with newer bcrypt releases). Keep bcrypt as a deprecated
+# legacy scheme so existing hashes can still be checked when possible.
+pwd_context = CryptContext(
+    schemes=["pbkdf2_sha256", "bcrypt"],
+    deprecated="auto",
+)
 
 ALGORITHM = "HS256"
 
@@ -19,7 +25,11 @@ def create_access_token(subject: Union[str, Any], expires_delta: Optional[timede
     return encoded_jwt
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        # Do not let hash-backend incompatibility crash auth endpoints.
+        return False
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)

@@ -1,3 +1,6 @@
+import asyncio
+from typing import Dict
+
 from google.cloud.sql.connector import Connector, IPTypes
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
@@ -5,14 +8,17 @@ from app.core.config import settings
 
 Base = declarative_base()
 
-# Global connector instance
-_connector = None
+# Event-loop specific connector instances to avoid ConnectorLoopError.
+_connectors_by_loop: Dict[int, Connector] = {}
 
 async def get_connector():
-    global _connector
-    if _connector is None:
-        _connector = Connector()
-    return _connector
+    loop = asyncio.get_running_loop()
+    loop_id = id(loop)
+    connector = _connectors_by_loop.get(loop_id)
+    if connector is None:
+        connector = Connector(loop=loop, refresh_strategy="LAZY")
+        _connectors_by_loop[loop_id] = connector
+    return connector
 
 async def getconn():
     connector = await get_connector()
@@ -26,6 +32,18 @@ async def getconn():
     )
     return conn
 
+
+async def close_connectors():
+    for loop_id, connector in list(_connectors_by_loop.items()):
+        try:
+            await connector.close_async()
+        except Exception:
+            try:
+                connector.close()
+            except Exception:
+                pass
+        _connectors_by_loop.pop(loop_id, None)
+
 # Create the engine with the async_creator
 # Note: We can't easily create the engine globally with an async creator if the connector needs async init.
 # But the Connector object itself doesn't need async init, only the connect_async method.
@@ -37,7 +55,9 @@ async def getconn():
 # If we are running locally without cloud sql connector setup variables, this might fail immediately.
 # We'll assume the variables are present or will be.
 
-if settings.INSTANCE_CONNECTION_NAME:
+if settings.DATABASE_URL:
+    engine = create_async_engine(settings.DATABASE_URL)
+elif settings.INSTANCE_CONNECTION_NAME and (settings.ENVIRONMENT == "production" or settings.USE_CLOUD_SQL_IN_DEV):
     engine = create_async_engine(
         "postgresql+asyncpg://",
         async_creator=getconn,
