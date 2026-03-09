@@ -1,12 +1,38 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from sqlalchemy import update
 from app.core.config import settings
-from app.core.database import Base, engine, close_connectors
+from app.core.database import Base, engine, close_connectors, AsyncSessionLocal
+from app.models.report import Report
 from app.services import gemini_service
 from app import models  # noqa: F401
+
+
+async def _fail_stale_generating_reports() -> None:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=settings.STALE_REPORT_TIMEOUT_MINUTES)
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            update(Report)
+            .where(Report.status == "generating")
+            .where(Report.created_at < cutoff)
+            .values(
+                status="failed",
+                content={
+                    "error": "Server restarted before report generation completed.",
+                    "hint": "보고서를 다시 생성해 주세요.",
+                    "__meta": {
+                        "progress": 100,
+                        "phase": "failed",
+                        "message": "서버 재시작 또는 워커 중단으로 생성 작업이 종료되었습니다.",
+                    },
+                },
+            )
+        )
+        await session.commit()
 
 
 @asynccontextmanager
@@ -19,6 +45,7 @@ async def lifespan(_: FastAPI):
     if settings.AUTO_CREATE_TABLES:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+    await _fail_stale_generating_reports()
     yield
     await engine.dispose()
     await close_connectors()

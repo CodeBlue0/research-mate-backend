@@ -1,10 +1,12 @@
 import uuid
+import asyncio
 from typing import Any, List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.report import Report
 from app.models.topic import Topic
@@ -73,15 +75,18 @@ async def generate_report_task(report_id: str, topic_id: str, custom_instruction
                     await db.commit()
                 return
 
-            content = await run_report_workflow(
-                subject=topic.subject or "수학",
-                unit_large=topic.unit_large or "미적분",
-                unit_medium=None,
-                unit_small=None,
-                topic_title=topic.title,
-                topic_description=topic.description or "",
-                custom_instructions=custom_instructions or "",
-                on_progress=update_progress,
+            content = await asyncio.wait_for(
+                run_report_workflow(
+                    subject=topic.subject or "수학",
+                    unit_large=topic.unit_large or "미적분",
+                    unit_medium=None,
+                    unit_small=None,
+                    topic_title=topic.title,
+                    topic_description=topic.description or "",
+                    custom_instructions=custom_instructions or "",
+                    on_progress=update_progress,
+                ),
+                timeout=settings.REPORT_GENERATION_TIMEOUT_SECONDS,
             )
 
             report_result = await db.execute(select(Report).where(Report.report_id == report_id))
@@ -96,6 +101,21 @@ async def generate_report_task(report_id: str, topic_id: str, custom_instruction
                 report.content = final_content
                 report.status = "completed"
                 db.add(report)
+                await db.commit()
+        except asyncio.TimeoutError:
+            report_result = await db.execute(select(Report).where(Report.report_id == report_id))
+            report = report_result.scalars().first()
+            if report:
+                report.status = "failed"
+                report.content = {
+                    "error": "보고서 생성 시간이 초과되었습니다.",
+                    "hint": "생성 파이프라인이 제한 시간을 넘었습니다. 다시 시도하거나 파이프라인 단계를 줄여 주세요.",
+                    "__meta": {
+                        "progress": 100,
+                        "phase": "failed",
+                        "message": "생성 시간이 초과되었습니다.",
+                    },
+                }
                 await db.commit()
         except Exception as e:
             report_result = await db.execute(select(Report).where(Report.report_id == report_id))
@@ -258,7 +278,7 @@ async def download_pdf(
     report_id: str,
     current_user: User = Depends(deps.get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Response:
+) -> Any:
     result = await db.execute(select(Report).where(Report.report_id == report_id))
     report = result.scalars().first()
     if not report:
@@ -266,5 +286,7 @@ async def download_pdf(
     if report.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    pdf_content = b"%PDF-1.4\n% Mock PDF placeholder for report export\n"
-    return Response(content=pdf_content, media_type="application/pdf")
+    raise HTTPException(
+        status_code=501,
+        detail="PDF export is not implemented on the backend yet. Use the frontend print/export flow instead.",
+    )

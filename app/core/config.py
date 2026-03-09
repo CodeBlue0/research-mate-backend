@@ -1,10 +1,10 @@
 from typing import Optional, List
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
     PROJECT_NAME: str = "Research-Mate"
     API_V1_STR: str = "/api/v1"
@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     USE_LANGGRAPH: bool = True
     MAX_REPORT_REVISIONS: int = 2
     TEXTBOOK_DATA_DIR: str = "app/data/textbook"
+    REPORT_GENERATION_TIMEOUT_SECONDS: int = 540
+    STALE_REPORT_TIMEOUT_MINUTES: int = 30
+    LANGSMITH_TRACING: bool = Field(default=False, validation_alias="LANGCHAIN_TRACING_V2")
+    LANGSMITH_API_KEY: Optional[str] = Field(default=None, validation_alias="LANGCHAIN_API_KEY")
+    LANGSMITH_PROJECT: str = Field(default="research-mate-backend", validation_alias="LANGCHAIN_PROJECT")
+    LANGSMITH_ENDPOINT: str = Field(default="https://api.smith.langchain.com", validation_alias="LANGCHAIN_ENDPOINT")
 
     @field_validator("ENVIRONMENT")
     @classmethod

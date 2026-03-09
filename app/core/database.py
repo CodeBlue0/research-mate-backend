@@ -63,9 +63,10 @@ elif settings.INSTANCE_CONNECTION_NAME and (settings.ENVIRONMENT == "production"
         async_creator=getconn,
     )
 else:
-    # Fallback to a local DB if configured, or just empty (will fail if used)
-    # This is helpful for testing or if user uses a direct URL
-    engine = create_async_engine("sqlite+aiosqlite:///./test.db") 
+    raise RuntimeError(
+        "Database configuration is missing. Set DATABASE_URL or configure Cloud SQL "
+        "with INSTANCE_CONNECTION_NAME, DB_USER, DB_PASS, and DB_NAME."
+    )
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
