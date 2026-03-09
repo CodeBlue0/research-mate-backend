@@ -13,6 +13,7 @@ set -euo pipefail
 : "${CPU:=2}"
 : "${MEMORY:=2Gi}"
 : "${MAX_INSTANCES:=10}"
+: "${GOOGLE_OAUTH_CLIENT_ID:=}"
 
 # Secret names in Secret Manager
 : "${SECRET_KEY_SECRET:=research-mate-secret-key}"
@@ -23,6 +24,11 @@ set -euo pipefail
 IMAGE="gcr.io/${GCP_PROJECT}/${SERVICE_NAME}:$(date +%Y%m%d-%H%M%S)"
 
 gcloud builds submit --project "$GCP_PROJECT" --tag "$IMAGE" .
+
+ENV_VARS="PROJECT_NAME=Research-Mate,API_V1_STR=/api/v1,ENVIRONMENT=production,AUTO_CREATE_TABLES=false,DB_USER=${DB_USER},DB_NAME=${DB_NAME},INSTANCE_CONNECTION_NAME=${INSTANCE_CONNECTION_NAME},CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS},ALLOWED_HOSTS=${ALLOWED_HOSTS},GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GOOGLE_CLOUD_LOCATION=us-central1,GEMINI_MODEL=gemini-2.0-flash,USE_LANGGRAPH=true,MAX_REPORT_REVISIONS=2,TEXTBOOK_DATA_DIR=app/data/textbook"
+if [[ -n "$GOOGLE_OAUTH_CLIENT_ID" ]]; then
+  ENV_VARS="${ENV_VARS},GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}"
+fi
 
 gcloud run deploy "$SERVICE_NAME" \
   --project "$GCP_PROJECT" \
@@ -35,7 +41,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --memory "$MEMORY" \
   --max-instances "$MAX_INSTANCES" \
   --add-cloudsql-instances "$INSTANCE_CONNECTION_NAME" \
-  --set-env-vars "PROJECT_NAME=Research-Mate,API_V1_STR=/api/v1,ENVIRONMENT=production,AUTO_CREATE_TABLES=false,DB_USER=${DB_USER},DB_NAME=${DB_NAME},INSTANCE_CONNECTION_NAME=${INSTANCE_CONNECTION_NAME},CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS},ALLOWED_HOSTS=${ALLOWED_HOSTS},GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GOOGLE_CLOUD_LOCATION=us-central1,GEMINI_MODEL=gemini-2.0-flash,USE_LANGGRAPH=true,MAX_REPORT_REVISIONS=2,TEXTBOOK_DATA_DIR=app/data/textbook" \
+  --set-env-vars "$ENV_VARS" \
   --set-secrets "SECRET_KEY=${SECRET_KEY_SECRET}:latest,DB_PASS=${DB_PASS_SECRET}:latest,OPENAI_API_KEY=${OPENAI_API_KEY_SECRET}:latest,GEMINI_API_KEY=${GEMINI_API_KEY_SECRET}:latest"
 
 echo "Deployed: ${SERVICE_NAME}"
