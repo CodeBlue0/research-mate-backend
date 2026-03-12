@@ -293,6 +293,13 @@ async def generate_topics_from_gemini(
     unit_small: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     fallback = _fallback_topic(subject, unit_large, unit_medium, unit_small, career, difficulty)
+    
+    # Map numeric difficulty to descriptive labels
+    diff_label = "기초"
+    if difficulty >= 80:
+        diff_label = "심화"
+    elif difficulty >= 50:
+        diff_label = "응용"
 
     prompt = f"""
 고등학생 심화탐구 주제 1개를 생성하세요.
@@ -302,15 +309,15 @@ async def generate_topics_from_gemini(
 - 중주제: {unit_medium or '선택 안함'}
 - 소주제: {unit_small or '선택 안함'}
 - 진로/관심: {career or '미입력'}
-- 난이도: {difficulty}
+- 난이도: {diff_label} (숫자 대신 이 명칭을 사용하여 추천 이유와 설명을 작성할 것)
 
 반드시 JSON 객체로 출력:
 {{
   "title": "...",
-  "reasoning": "...",
+  "reasoning": "...",  // 추천 이유 작성 시 '난이도 {diff_label} 수준'임을 명시할 것
   "description": "...",
   "tags": ["..."],
-  "difficulty": "기본|심화|도전",
+  "difficulty": "{diff_label}",
   "related_subjects": ["..."]
 }}
 """
@@ -348,20 +355,21 @@ async def generate_report_content(
 
 JSON 키:
 - title
-- sections (배열)
+- sections (배열, 각 요소: {{ "heading": "...", "content": "...", "insight": "..." }})
 - references (문자열 배열)
 
 조건:
 1) sections는 5~8개.
-2) 각 section은 {{ "heading": "...", "content": "..." }} 형식.
+2) 각 section은 heading, content, insight 필드를 반드시 포함할 것.
 3) heading은 주제에 맞게 자유롭게 생성하고, 고정 목차를 복사하지 말 것.
 4) content는 각 섹션마다 6~10문장.
+5) insight는 해당 섹션의 핵심 내용을 1~2줄로 요약한 것.
 5) 교과 개념과 실제 적용 사이의 연결 문장을 포함.
 6) 반드시 최소 1개 이상의 '심화 이론' 섹션을 포함하고, 중고등학교 수준을 넘어서는 개념의 정의와 의미를 자세히 설명할 것.
 7) 실험, 시뮬레이션, 코드 실행, 데이터 수집을 실제로 수행하지 않았다면 수행한 것처럼 쓰지 말 것.
 8) 실제 실험을 쓰려면 계산 과정, 모델, 수학적 근거를 충분히 설명해야 하며, 그렇지 않으면 개념 설명과 활용 분석 중심으로 쓸 것.
 9) 활용 사례에서는 수학 개념이 실제 기술/공학/사회 현상에 어떻게 적용되는지 구체적으로 설명할 것.
-10) 수식/정량 분석 가능성이 있으면 설명에 포함하고, 가능한 경우 수학적 의미를 깊이 있게 해설할 것.
+10) 수식, 정량적 분석 수치, 과학적 기호나 화학식 등이 포함되는 경우 **반드시 LaTeX 형식**($x^2$ 또는 $$x^2$$)을 사용하여 작성할 것. 수식이 텍스트로 깨지지 않도록 엄밀하게 작성해야 함.
 11) 마지막 섹션은 반드시 '생활기록부용 활동 요약'으로 하고, 5줄 내외로 학생이 배운 점과 심화 개념을 포함할 것.
 12) 추측성 표현 금지, 근거 중심.
 13) references는 최소 2개 항목.

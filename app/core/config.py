@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
-    PROJECT_NAME: str = "Research-Mate"
+    PROJECT_NAME: str = "세특연구소"
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = "CHANGE_THIS_TO_A_SECURE_SECRET_KEY"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60

@@ -56,11 +56,17 @@ async def close_connectors():
 # We'll assume the variables are present or will be.
 
 if settings.DATABASE_URL:
-    engine = create_async_engine(settings.DATABASE_URL)
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+    )
 elif settings.INSTANCE_CONNECTION_NAME and (settings.ENVIRONMENT == "production" or settings.USE_CLOUD_SQL_IN_DEV):
     engine = create_async_engine(
         "postgresql+asyncpg://",
         async_creator=getconn,
+        pool_pre_ping=True,
+        pool_recycle=1800,
     )
 else:
     raise RuntimeError(
