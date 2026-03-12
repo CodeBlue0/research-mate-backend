@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     OPENAI_API_BASE: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o-mini"
     GOOGLE_OAUTH_CLIENT_ID: Optional[str] = None
+    TOSS_PAYMENTS_SECRET_KEY: Optional[str] = None
 
     # Workflow controls
     USE_LANGGRAPH: bool = True

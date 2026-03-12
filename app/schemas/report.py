@@ -4,12 +4,15 @@ from datetime import datetime
 
 class ReportGenerateRequest(BaseModel):
     topic_id: str
+    report_type: str = "general"
     custom_instructions: Optional[str] = None
 
 class ReportGenerateResponse(BaseModel):
     report_id: str
     status: str
     estimated_time: int
+    charged_package_code: Optional[str] = None
+    remaining_credit_balance: Optional[int] = None
 
 class ReportResponse(BaseModel):
     report_id: str

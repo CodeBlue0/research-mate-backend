@@ -4,10 +4,12 @@ from typing import Any, List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func
 from sqlalchemy.future import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
+from app.models.credit_transaction import CreditTransaction
 from app.models.report import Report
 from app.models.topic import Topic
 from app.models.user import User
@@ -26,6 +28,35 @@ from app.services import gemini_service
 from app.services.report_workflow import run_report_workflow
 
 router = APIRouter()
+
+REPORT_TYPE_TO_PACKAGE = {
+    "general": "basic",
+    "premium": "premium-review",
+}
+
+
+async def _get_package_credit_balances(db: AsyncSession, user_id: int) -> dict[str, int]:
+    result = await db.execute(
+        select(
+            CreditTransaction.package_code,
+            func.coalesce(func.sum(CreditTransaction.delta), 0),
+        )
+        .where(CreditTransaction.user_id == user_id)
+        .group_by(CreditTransaction.package_code)
+    )
+    return {
+        package_code: int(total or 0)
+        for package_code, total in result.all()
+    }
+
+
+def _select_package_to_charge(report_type: str, package_credit_balances: dict[str, int]) -> str | None:
+    package_code = REPORT_TYPE_TO_PACKAGE.get(report_type)
+    if not package_code:
+        return None
+    if package_credit_balances.get(package_code, 0) <= 0:
+        return None
+    return package_code
 
 
 def serialize_report(report: Report) -> dict:
@@ -141,6 +172,12 @@ async def generate_report(
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
 
+    package_credit_balances = await _get_package_credit_balances(db, current_user.id)
+    charged_package_code = _select_package_to_charge(request.report_type, package_credit_balances)
+    if not charged_package_code:
+        package_label = "프리미엄 리포트" if request.report_type == "premium" else "일반 리포트"
+        raise HTTPException(status_code=400, detail=f"{package_label}에 사용할 수 있는 크레딧이 없습니다.")
+
     report_id = str(uuid.uuid4())
     report = Report(
         report_id=report_id,
@@ -151,6 +188,17 @@ async def generate_report(
         user_id=current_user.id,
     )
     db.add(report)
+    db.add(
+        CreditTransaction(
+            user_id=current_user.id,
+            package_code=charged_package_code,
+            delta=-1,
+            transaction_type="SPEND",
+            reason="report_generated",
+            report_id=report_id,
+        )
+    )
+    current_user.credit_balance = max(0, (current_user.credit_balance or 0) - 1)
     await db.commit()
 
     background_tasks.add_task(
@@ -164,6 +212,8 @@ async def generate_report(
         "report_id": report_id,
         "status": "generating",
         "estimated_time": 30,
+        "charged_package_code": charged_package_code,
+        "remaining_credit_balance": current_user.credit_balance or 0,
     }
 
 
