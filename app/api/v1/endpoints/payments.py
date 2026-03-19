@@ -93,38 +93,18 @@ async def _get_promotion_claim_count(db: AsyncSession, user_id: int, package_cod
 
 
 async def _get_package_credit_balances(db: AsyncSession, user_id: int) -> dict[str, int]:
-    earned_result = await db.execute(
-        select(
-            PaymentOrder.package_code,
-            func.coalesce(func.sum(PaymentOrder.credits_to_add), 0),
-        )
-        .where(
-            PaymentOrder.user_id == user_id,
-            PaymentOrder.status == "DONE",
-        )
-        .group_by(PaymentOrder.package_code)
-    )
-    spend_result = await db.execute(
+    result = await db.execute(
         select(
             CreditTransaction.package_code,
             func.coalesce(func.sum(CreditTransaction.delta), 0),
         )
-        .where(
-            CreditTransaction.user_id == user_id,
-            CreditTransaction.transaction_type == "SPEND",
-        )
+        .where(CreditTransaction.user_id == user_id)
         .group_by(CreditTransaction.package_code)
     )
 
-    balances: dict[str, int] = {}
-    for package_code, total in earned_result.all():
-        balances[package_code] = int(total or 0)
-    for package_code, total in spend_result.all():
-        balances[package_code] = balances.get(package_code, 0) + int(total or 0)
-
     return {
-        package_code: max(0, total)
-        for package_code, total in balances.items()
+        package_code: max(0, int(total or 0))
+        for package_code, total in result.all()
     }
 
 

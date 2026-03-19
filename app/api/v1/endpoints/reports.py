@@ -45,7 +45,7 @@ async def _get_package_credit_balances(db: AsyncSession, user_id: int) -> dict[s
         .group_by(CreditTransaction.package_code)
     )
     return {
-        package_code: int(total or 0)
+        package_code: max(0, int(total or 0))
         for package_code, total in result.all()
     }
 
