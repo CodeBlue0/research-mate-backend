@@ -10,7 +10,9 @@ from app.api import deps
 from app.core.database import get_db
 from app.models.credit_transaction import CreditTransaction
 from app.models.payment import PaymentOrder
+from app.models.report import Report
 from app.models.user import User
+from datetime import datetime
 
 router = APIRouter()
 
@@ -41,6 +43,19 @@ class AdminCreditAdjustResponse(BaseModel):
     package_code: str
     new_balance: int
     delta: int
+
+
+class AdminReportResponse(BaseModel):
+    report_id: str
+    title: str
+    user_email: str
+    created_at: datetime
+    status: str
+
+
+class AdminReportReviewRequest(BaseModel):
+    content: dict[str, Any]
+    mentor_comment: str
 
 
 async def _require_admin(current_user: User = Depends(deps.get_current_user)) -> User:
@@ -136,3 +151,53 @@ async def adjust_user_credits(
         new_balance=new_balance,
         delta=body.delta,
     )
+
+
+@router.get("/reports/awaiting-review", response_model=list[AdminReportResponse])
+async def list_awaiting_reviews(
+    _admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    result = await db.execute(
+        select(Report, User.email)
+        .join(User, Report.user_id == User.id)
+        .where(Report.status == "awaiting_review")
+        .order_by(Report.created_at.asc())
+    )
+    rows = result.all()
+    return [
+        AdminReportResponse(
+            report_id=row.Report.report_id,
+            title=row.Report.title,
+            user_email=row.email,
+            created_at=row.Report.created_at,
+            status=row.Report.status,
+        )
+        for row in rows
+    ]
+
+
+@router.post("/reports/{report_id}/review")
+async def review_report(
+    report_id: str,
+    body: AdminReportReviewRequest,
+    _admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    result = await db.execute(select(Report).where(Report.report_id == report_id))
+    report = result.scalars().first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    # Backup original content if not already backed up
+    if report.original_content is None:
+        report.original_content = report.content
+
+    report.content = body.content
+    report.mentor_comment = body.mentor_comment
+    report.mentor_reviewed_at = func.now()
+    report.status = "completed"
+
+    db.add(report)
+    await db.commit()
+    return {"status": "success"}

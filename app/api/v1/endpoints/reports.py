@@ -75,6 +75,10 @@ def serialize_report(report: Report) -> dict:
         "progress": progress,
         "phase": phase,
         "status_message": status_message,
+        "report_type": getattr(report, "report_type", "general"),
+        "mentor_comment": getattr(report, "mentor_comment", None),
+        "mentor_reviewed_at": getattr(report, "mentor_reviewed_at", None),
+        "original_content": getattr(report, "original_content", None),
     }
 
 
@@ -127,10 +131,13 @@ async def generate_report_task(report_id: str, topic_id: str, custom_instruction
                 final_content["__meta"] = {
                     "progress": 100,
                     "phase": "completed",
-                    "message": "보고서 생성이 완료되었습니다.",
+                    "message": "보고서 생성이 완료되었습니다." if report.report_type != "premium" else "보고서 생성이 완료되었습니다. 멘토의 피드백을 기다려주세요.",
                 }
                 report.content = final_content
-                report.status = "completed"
+                if report.report_type == "premium":
+                    report.status = "awaiting_review"
+                else:
+                    report.status = "completed"
                 db.add(report)
                 await db.commit()
         except asyncio.TimeoutError:
@@ -186,6 +193,7 @@ async def generate_report(
         content={"__meta": {"progress": 3, "phase": "queued", "message": "생성 작업을 대기열에 등록했습니다."}},
         topic_id=topic.topic_id,
         user_id=current_user.id,
+        report_type=request.report_type,
     )
     db.add(report)
     db.add(
@@ -247,6 +255,8 @@ async def update_report(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     report.content = body.content
+    if body.title is not None:
+        report.title = body.title
     db.add(report)
     await db.commit()
     await db.refresh(report)

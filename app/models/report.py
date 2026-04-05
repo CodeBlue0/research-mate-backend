@@ -12,6 +12,12 @@ class Report(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_bookmarked = Column(Boolean, default=False)
     
+    # Premium / Mentor fields
+    report_type = Column(String, default="general", nullable=False) # general, premium
+    mentor_comment = Column(Text, nullable=True)
+    original_content = Column(JSON, nullable=True) # backup of original content for comparison
+    mentor_reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    
     # Link to Topic
     topic_id = Column(String, ForeignKey("topics.topic_id"), nullable=False)
     

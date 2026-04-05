@@ -25,6 +25,11 @@ class ReportResponse(BaseModel):
     phase: Optional[str] = None
     status_message: Optional[str] = None
 
+    report_type: str
+    mentor_comment: Optional[str] = None
+    original_content: Optional[Dict[str, Any]] = None
+    mentor_reviewed_at: Optional[datetime] = None
+
     class Config:
         from_attributes = True
 
@@ -53,3 +58,4 @@ class ReportChatResponse(BaseModel):
 
 class ReportUpdateRequest(BaseModel):
     content: Dict[str, Any]
+    title: Optional[str] = None
